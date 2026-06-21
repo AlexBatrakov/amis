@@ -1,0 +1,1 @@
+"""Ankh-Morpork Intelligence System."""

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amis"
+version = "0.1.0"
+description = "Local-first retrieval and question answering for a literary corpus"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = "MIT"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<10",
+    "ruff>=0.11,<1",
+]
+
+[project.scripts]
+amis = "amis.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amis"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
