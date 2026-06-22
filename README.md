@@ -1,9 +1,9 @@
 # AMIS
 
 AMIS — Ankh-Morpork Intelligence System — is a local-first retrieval and
-question-answering project for a literary corpus. It currently provides
-deterministic one-book EPUB 2 ingestion and model-independent character
-chunking. Retrieval is not implemented yet.
+question-answering project for a literary corpus. It provides deterministic
+one-book EPUB 2 ingestion, model-independent chunking, and a validated local
+semantic index with exact cosine ranking.
 
 Requires Python 3.13 (`>=3.13,<3.14`).
 
@@ -62,6 +62,21 @@ Use `--target-chars`, `--max-chars`, and `--overlap-chars` to select another
 versioned character policy. The chunker reads only the normalized records,
 never crosses section boundaries, and does not use a model tokenizer. The
 input document directory and chunk output root must be disjoint.
+
+Build the optional semantic-index runtime, explicitly acquire the pinned gated
+model, and index one chunk-policy directory:
+
+```bash
+python -m pip install -e ".[semantic-index]"
+amis model acquire
+amis index build data/processed/chunks/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256> --output data/indexes
+```
+
+Model acquisition is the only network-capable model action. Index builds verify
+local model files and do not download anything. See
+[`docs/semantic-index.md`](docs/semantic-index.md) for terms, cache overrides,
+offline behavior, artifact layout, and the supported dependency lock.
 
 ## Development Checks
 

@@ -14,6 +14,13 @@ from amis.chunking import (
     chunk_document,
 )
 from amis.ingestion import IngestionError, ingest_epub
+from amis.model_cache import (
+    ModelCacheError,
+    acquire_model,
+    default_model_cache,
+    snapshot_directory,
+    verify_model_snapshot,
+)
 
 READY_MESSAGE = "AMIS repository foundation is ready."
 
@@ -61,6 +68,42 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_OVERLAP_CHARS,
         help="maximum source overlap",
     )
+    model_parser = subparsers.add_parser(
+        "model", help="acquire or verify the pinned embedding model"
+    )
+    model_subparsers = model_parser.add_subparsers(dest="model_command", required=True)
+    acquire_parser = model_subparsers.add_parser(
+        "acquire", help="download and verify the exact pinned model revision"
+    )
+    _add_cache_argument(acquire_parser)
+    verify_parser = model_subparsers.add_parser(
+        "verify", help="verify a local model snapshot without network access"
+    )
+    _add_cache_argument(verify_parser)
+    verify_parser.add_argument(
+        "--model-snapshot",
+        type=Path,
+        help="explicit snapshot contained by the selected cache root",
+    )
+    index_parser = subparsers.add_parser("index", help="build a local semantic index")
+    index_subparsers = index_parser.add_subparsers(dest="index_command", required=True)
+    build_parser = index_subparsers.add_parser(
+        "build", help="build one semantic index with network access disabled"
+    )
+    build_parser.add_argument(
+        "chunk_policy_directory",
+        type=Path,
+        help="directory containing chunk_manifest.json and chunks.jsonl",
+    )
+    build_parser.add_argument(
+        "--output", type=Path, required=True, help="separate index output root"
+    )
+    _add_cache_argument(build_parser)
+    build_parser.add_argument(
+        "--model-snapshot",
+        type=Path,
+        help="explicit snapshot contained by the selected cache root",
+    )
     arguments = parser.parse_args(argv)
 
     if arguments.command is None:
@@ -77,6 +120,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             f"Ingested {result.document_id} with "
             f"{result.section_count} ordered sections."
+        )
+        return 0
+
+    if arguments.command == "model":
+        cache_root = arguments.cache_root or default_model_cache()
+        try:
+            if arguments.model_command == "acquire":
+                verified = acquire_model(cache_root)
+                action = "Acquired and verified"
+            else:
+                selected_snapshot = arguments.model_snapshot or snapshot_directory(
+                    cache_root
+                )
+                verified = verify_model_snapshot(
+                    selected_snapshot, cache_root=cache_root
+                )
+                action = "Verified"
+        except ModelCacheError as error:
+            print(f"amis model: error: {error}", file=sys.stderr)
+            return 1
+        print(f"{action} pinned model {verified.spec.spec_id}.")
+        return 0
+
+    if arguments.command == "index":
+        from amis.embeddings import EmbeddingError, SentenceTransformerEmbedder
+        from amis.semantic_index import SemanticIndexError, build_semantic_index
+
+        cache_root = arguments.cache_root or default_model_cache()
+        selected_snapshot = arguments.model_snapshot or snapshot_directory(cache_root)
+        try:
+            verified = verify_model_snapshot(selected_snapshot, cache_root=cache_root)
+            embedder = SentenceTransformerEmbedder(verified.snapshot_directory)
+            result = build_semantic_index(
+                arguments.chunk_policy_directory, arguments.output, embedder
+            )
+        except (ModelCacheError, EmbeddingError, SemanticIndexError) as error:
+            print(f"amis index: error: {error}", file=sys.stderr)
+            return 1
+        print(
+            f"Indexed {result.document_id} with {result.chunk_count} vectors "
+            f"under {result.index_config_id}."
         )
         return 0
 
@@ -100,3 +184,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"under {chunk_result.policy_id}."
     )
     return 0
+
+
+def _add_cache_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--cache-root",
+        type=Path,
+        help="model cache root (overrides AMIS_MODEL_CACHE and the user-local default)",
+    )
