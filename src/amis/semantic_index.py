@@ -84,6 +84,16 @@ class SearchResult:
 
 
 @dataclass(frozen=True)
+class ValidatedChunkText:
+    """One validated chunk record with passage text for runtime citation display."""
+
+    chunk_id: str
+    document_chunk_index: int
+    text: str
+    text_sha256: str
+
+
+@dataclass(frozen=True)
 class LoadedSemanticIndex:
     """A fully validated exact index."""
 
@@ -315,6 +325,22 @@ def load_semantic_index(
                 "index metadata does not match the supplied chunk input"
             )
     return LoadedSemanticIndex(directory, manifest, vectors, metadata)
+
+
+def load_validated_chunk_texts(
+    chunk_policy_directory: Path | str,
+) -> tuple[ValidatedChunkText, ...]:
+    """Load fully validated chunk text for runtime citation display."""
+    source = _load_chunk_input(Path(chunk_policy_directory))
+    return tuple(
+        ValidatedChunkText(
+            chunk["chunk_id"],
+            chunk["document_chunk_index"],
+            chunk["text"],
+            chunk["text_sha256"],
+        )
+        for chunk in source.chunks
+    )
 
 
 def _load_chunk_input(directory: Path) -> _ChunkInput:

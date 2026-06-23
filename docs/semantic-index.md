@@ -97,3 +97,30 @@ Common errors identify missing optional dependencies, unauthenticated gated
 access, absent or mismatched snapshot files, token overflow, malformed vectors,
 stale input, unsafe paths, or conflicting output. Errors never include passage
 text or credentials.
+
+## Local Search and Citations
+
+Search uses one existing semantic index, the matching chunk-policy directory,
+and a verified local model snapshot:
+
+```bash
+amis search "synthetic query" \
+  --index data/indexes/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256>/index_config_sha256_<config-sha256> \
+  --chunks data/processed/chunks/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256> \
+  --top-k 5 \
+  --excerpt-chars 320
+```
+
+The command applies the pinned query transform, counts the fully transformed
+query without truncation, rejects empty or over-limit queries, embeds exactly one
+query vector, and delegates ranking to the exact cosine top-k primitive. It
+loads the index with the supplied chunk artifact as expected input before any
+citation text is displayed, so stale or mismatched chunks cannot be cited.
+
+Each result row includes rank, score, relative source path, document/chunk/section
+identifiers, source coordinates, text hash, and a bounded display excerpt. The
+coordinates refer to the full retrieved chunk; the excerpt is only a shortened
+runtime display. Search does not acquire models, download files, generate
+answers, rerank, evaluate quality, log queries, or write result artifacts.

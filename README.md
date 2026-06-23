@@ -78,6 +78,22 @@ local model files and do not download anything. See
 [`docs/semantic-index.md`](docs/semantic-index.md) for terms, cache overrides,
 offline behavior, artifact layout, and the supported dependency lock.
 
+Search one validated local index and display ranked citations:
+
+```bash
+amis search "your query" \
+  --index data/indexes/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256>/index_config_sha256_<config-sha256> \
+  --chunks data/processed/chunks/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256> \
+  --top-k 5 \
+  --excerpt-chars 320
+```
+
+Search verifies the local model snapshot, validates the supplied index and
+matching chunks together, and prints bounded runtime excerpts. It does not
+download models, generate answers, or persist query text.
+
 ## Development Checks
 
 ```bash

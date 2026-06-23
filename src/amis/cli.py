@@ -21,6 +21,7 @@ from amis.model_cache import (
     snapshot_directory,
     verify_model_snapshot,
 )
+from amis.retrieval import DEFAULT_EXCERPT_CHARS, DEFAULT_TOP_K
 
 READY_MESSAGE = "AMIS repository foundation is ready."
 
@@ -104,6 +105,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="explicit snapshot contained by the selected cache root",
     )
+    search_parser = subparsers.add_parser(
+        "search", help="search one local semantic index for one query"
+    )
+    search_parser.add_argument("query", help="query text")
+    search_parser.add_argument(
+        "--index",
+        type=Path,
+        required=True,
+        help="directory containing index_manifest.json, metadata.jsonl, vectors.npy",
+    )
+    search_parser.add_argument(
+        "--chunks",
+        type=Path,
+        required=True,
+        help="matching chunk-policy directory for citation text",
+    )
+    search_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=DEFAULT_TOP_K,
+        help="number of ranked citations to display",
+    )
+    search_parser.add_argument(
+        "--excerpt-chars",
+        type=int,
+        default=DEFAULT_EXCERPT_CHARS,
+        help="maximum display characters per excerpt",
+    )
+    _add_cache_argument(search_parser)
+    search_parser.add_argument(
+        "--model-snapshot",
+        type=Path,
+        help="explicit snapshot contained by the selected cache root",
+    )
     arguments = parser.parse_args(argv)
 
     if arguments.command is None:
@@ -164,6 +199,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
 
+    if arguments.command == "search":
+        from amis.embeddings import EmbeddingError, SentenceTransformerEmbedder
+        from amis.retrieval import (
+            RetrievalError,
+            search_citations,
+            validate_search_request,
+        )
+
+        cache_root = arguments.cache_root or default_model_cache()
+        selected_snapshot = arguments.model_snapshot or snapshot_directory(cache_root)
+        try:
+            validate_search_request(
+                arguments.query,
+                top_k=arguments.top_k,
+                excerpt_chars=arguments.excerpt_chars,
+            )
+            verified = verify_model_snapshot(selected_snapshot, cache_root=cache_root)
+            embedder = SentenceTransformerEmbedder(verified.snapshot_directory)
+            result = search_citations(
+                arguments.query,
+                index_directory=arguments.index,
+                chunk_policy_directory=arguments.chunks,
+                embedder=embedder,
+                top_k=arguments.top_k,
+                excerpt_chars=arguments.excerpt_chars,
+            )
+        except (ModelCacheError, EmbeddingError, RetrievalError) as error:
+            print(f"amis search: error: {error}", file=sys.stderr)
+            return 1
+        _print_search_result(result)
+        return 0
+
     try:
         policy = ChunkPolicy(
             target_chars=arguments.target_chars,
@@ -184,6 +251,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"under {chunk_result.policy_id}."
     )
     return 0
+
+
+def _print_search_result(result: object) -> None:
+    citations = result.citations
+    for index, citation in enumerate(citations):
+        if index:
+            print()
+        print(f"Rank {citation.rank} | score {citation.score:.6f}")
+        print(f"source: {citation.source_path}")
+        print(f"document_id: {citation.document_id}")
+        print(f"chunk_id: {citation.chunk_id}")
+        print(f"document_chunk_index: {citation.document_chunk_index}")
+        print(f"section_id: {citation.section_id}")
+        print(f"section_chunk_index: {citation.section_chunk_index}")
+        print(
+            f"coordinates: start_char={citation.start_char} "
+            f"end_char={citation.end_char}"
+        )
+        print(f"text_sha256: {citation.text_sha256}")
+        print(f"excerpt: {citation.excerpt}")
 
 
 def _add_cache_argument(parser: argparse.ArgumentParser) -> None:

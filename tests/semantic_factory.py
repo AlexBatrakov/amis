@@ -20,15 +20,26 @@ class FakeEmbedder:
         self,
         *,
         token_counts: tuple[int, ...] | None = None,
+        query_token_counts: tuple[int, ...] | None = None,
         vectors: np.ndarray | None = None,
+        query_vectors: np.ndarray | None = None,
         output_ids: tuple[str, ...] | None = None,
+        query_output_ids: tuple[str, ...] | None = None,
         preflight_error: str | None = None,
+        query_preflight_error: str | None = None,
+        query_embed_error: str | None = None,
     ) -> None:
         self.token_counts = token_counts
+        self.query_token_counts = query_token_counts
         self.vectors = vectors
+        self.query_vectors = query_vectors
         self.output_ids = output_ids
+        self.query_output_ids = query_output_ids
         self.preflight_error = preflight_error
+        self.query_preflight_error = query_preflight_error
+        self.query_embed_error = query_embed_error
         self.embed_calls = 0
+        self.query_embed_calls = 0
 
     @property
     def identity(self) -> dict[str, object]:
@@ -50,6 +61,10 @@ class FakeEmbedder:
     def preflight_queries(
         self, item_ids: Sequence[str], exact_texts: Sequence[str]
     ) -> tuple[int, ...]:
+        if self.query_preflight_error:
+            raise EmbeddingError(self.query_preflight_error)
+        if self.query_token_counts is not None:
+            return self.query_token_counts
         counts = tuple(len(text.split()) + 8 for text in exact_texts)
         if any(count > 1984 for count in counts):
             raise EmbeddingError("query token limit exceeded")
@@ -70,9 +85,15 @@ class FakeEmbedder:
     def embed_queries(
         self, item_ids: Sequence[str], exact_texts: Sequence[str]
     ) -> EmbeddingOutput:
-        vectors = np.zeros((len(item_ids), 768), dtype=np.float32)
-        vectors[:, 0] = 1.0
-        return EmbeddingOutput(tuple(item_ids), vectors)
+        self.query_embed_calls += 1
+        if self.query_embed_error:
+            raise EmbeddingError(self.query_embed_error)
+        if self.query_vectors is None:
+            vectors = np.zeros((len(item_ids), 768), dtype=np.float32)
+            vectors[:, 0] = 1.0
+        else:
+            vectors = self.query_vectors
+        return EmbeddingOutput(self.query_output_ids or tuple(item_ids), vectors)
 
 
 def write_chunk_policy(root: Path, *, section_count: int = 3) -> Path:
