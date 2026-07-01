@@ -22,6 +22,11 @@ from amis.model_cache import (
     snapshot_directory,
     verify_model_snapshot,
 )
+from amis.public_corpus import (
+    DEFAULT_PUBLIC_CORPUS_ROOT,
+    PublicCorpusError,
+    acquire_public_corpus,
+)
 from amis.retrieval import DEFAULT_EXCERPT_CHARS, DEFAULT_TOP_K
 
 READY_MESSAGE = "AMIS repository foundation is ready."
@@ -69,6 +74,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         default=DEFAULT_OVERLAP_CHARS,
         help="maximum source overlap",
+    )
+    corpus_parser = subparsers.add_parser(
+        "corpus", help="acquire reviewed public corpus sources"
+    )
+    corpus_subparsers = corpus_parser.add_subparsers(
+        dest="corpus_command", required=True
+    )
+    corpus_acquire_parser = corpus_subparsers.add_parser(
+        "acquire", help="download one reviewed public corpus source"
+    )
+    corpus_acquire_parser.add_argument(
+        "corpus_id",
+        help="supported corpus ID, for example crime-and-punishment-garnett",
+    )
+    corpus_acquire_parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_PUBLIC_CORPUS_ROOT,
+        help="raw public corpus output root",
     )
     model_parser = subparsers.add_parser(
         "model", help="acquire or verify the pinned embedding model"
@@ -220,6 +244,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"Ingested {result.document_id} with "
             f"{result.section_count} ordered sections."
         )
+        return 0
+
+    if arguments.command == "corpus":
+        try:
+            result = acquire_public_corpus(arguments.corpus_id, arguments.output)
+        except PublicCorpusError as error:
+            print(f"amis corpus: error: {error}", file=sys.stderr)
+            return 1
+
+        action = "Already present" if result.already_present else "Acquired"
+        print(f"{action} public corpus {result.corpus_id}.")
+        print(f"source_url: {result.source_url}")
+        print(f"final_url: {result.final_url}")
+        print(f"artifact: {result.artifact_path}")
+        print(f"manifest: {result.manifest_path}")
+        print(f"byte_size: {result.size}")
+        print(f"sha256: {result.sha256}")
         return 0
 
     if arguments.command == "model":

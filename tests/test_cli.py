@@ -1,5 +1,6 @@
 """Smoke tests for the AMIS package and CLI."""
 
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -9,9 +10,11 @@ from pytest import CaptureFixture, MonkeyPatch
 import amis
 import amis.cli as cli
 import amis.embeddings as embeddings
+import amis.public_corpus as public_corpus
 from amis.cli import READY_MESSAGE, main
 from amis.model_cache import VerifiedModel
 from amis.model_spec import EMBEDDING_GEMMA
+from amis.public_corpus import PublicCorpusSource
 from amis.semantic_index import build_semantic_index
 from tests.semantic_factory import (
     FakeEmbedder,
@@ -94,6 +97,83 @@ assert 'torch' not in sys.modules
 assert 'sentence_transformers' not in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_corpus_acquire_help_does_not_import_optional_runtime() -> None:
+    script = """
+import sys
+from amis.cli import main
+try:
+    main(['corpus', 'acquire', '--help'])
+except SystemExit as error:
+    assert error.code == 0
+assert 'torch' not in sys.modules
+assert 'sentence_transformers' not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_corpus_acquire_cli_prints_passage_free_provenance(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: MonkeyPatch
+) -> None:
+    content = b"synthetic public-domain epub bytes"
+    source = _synthetic_public_corpus_source(content)
+    monkeypatch.setattr(
+        public_corpus, "PUBLIC_CORPUS_REGISTRY", {source.corpus_id: source}
+    )
+    monkeypatch.setattr(
+        public_corpus,
+        "_download_url",
+        lambda url: public_corpus._DownloadedSource(
+            content=content,
+            final_url="https://example.test/final.epub",
+            content_type="application/epub+zip",
+        ),
+    )
+
+    assert (
+        main(
+            [
+                "corpus",
+                "acquire",
+                source.corpus_id,
+                "--output",
+                str(tmp_path / "raw"),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert f"Acquired public corpus {source.corpus_id}." in captured.out
+    assert "source_url: https://example.test/source.epub" in captured.out
+    assert "final_url: https://example.test/final.epub" in captured.out
+    assert "byte_size: 34" in captured.out
+    assert f"sha256: {hashlib.sha256(content).hexdigest()}" in captured.out
+    assert "synthetic public-domain epub bytes" not in captured.out
+
+
+def test_corpus_acquire_cli_reports_unsupported_id(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    assert (
+        main(
+            [
+                "corpus",
+                "acquire",
+                "unknown-corpus",
+                "--output",
+                str(tmp_path / "raw"),
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("amis corpus: error:")
+    assert "unsupported public corpus ID" in captured.err
 
 
 def test_index_build_reports_missing_local_model(
@@ -370,3 +450,27 @@ def test_hybrid_search_cli_candidate_validation_precedes_model_verification(
     assert captured.out == ""
     assert captured.err.startswith("amis hybrid-search: error:")
     assert "candidate-k" in captured.err
+
+
+def _synthetic_public_corpus_source(content: bytes) -> PublicCorpusSource:
+    return PublicCorpusSource(
+        corpus_id="synthetic-public-book",
+        title="Synthetic Public Book",
+        author="Example Author",
+        translator="Example Translator",
+        language="English",
+        original_publication_year=1900,
+        translation_publication_year=1901,
+        provider="Example Public Source",
+        catalog_url="https://example.test/catalog",
+        source_url="https://example.test/source.epub",
+        source_format="epub2",
+        artifact_name="synthetic-public-book.epub",
+        expected_sha256=hashlib.sha256(content).hexdigest(),
+        expected_size=len(content),
+        source_checked_date="2026-07-01",
+        license_url="https://example.test/license",
+        legal_basis="Synthetic public fixture for tests.",
+        caveats=("Synthetic fixture caveat.",),
+        alternate_sources=(),
+    )

@@ -39,6 +39,20 @@ data/processed/
 The source path must name one explicit EPUB file. Directory discovery, EPUB 3,
 and indexing are not supported by this command.
 
+Acquire the optional public-domain demo corpus:
+
+```bash
+amis corpus acquire crime-and-punishment-garnett \
+  --output data/raw/public-domain
+```
+
+This fetches the reviewed Project Gutenberg EPUB 2 source for Constance
+Garnett's English translation of `Crime and Punishment`, verifies its SHA-256,
+and writes a passage-free local provenance manifest. The downloaded book remains
+ignored local data. See
+[`docs/public-domain-corpus.md`](docs/public-domain-corpus.md) for source,
+format, copyright-jurisdiction, and Project Gutenberg trademark caveats.
+
 Chunk one normalized document into exact, citable section spans:
 
 ```bash

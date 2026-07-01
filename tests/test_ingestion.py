@@ -125,6 +125,17 @@ def test_legacy_name_anchor_is_a_valid_note_fragment(tmp_path: Path) -> None:
     assert "internal_link_target_missing" not in sections[1]["warnings"]
 
 
+def test_benign_xhtml_doctype_in_spine_content_is_accepted(tmp_path: Path) -> None:
+    source = build_epub(tmp_path / "benign-doctype.epub", "benign_doctype_content")
+
+    result = ingest_epub(source, tmp_path / "output")
+
+    sections = _read_sections(result.output_directory / "sections.jsonl")
+    assert result.section_count == 5
+    assert sections[2]["source_path"] == "OPS/Text/body-two.xhtml"
+    assert sections[2]["retrieval_candidate"] is True
+
+
 @pytest.mark.parametrize(
     ("anomaly", "fragment", "expect_warning"),
     [
@@ -185,6 +196,7 @@ def test_cli_ingests_one_explicit_source(
         ("navigation_missing", "navigation_missing"),
         ("navigation_empty", "navigation_empty"),
         ("navigation_malformed", "navigation_missing"),
+        ("doctype_navigation", "navigation_missing"),
         ("missing_internal_link", "internal_link_target_missing"),
         ("unknown_role", "section_role_unknown"),
     ],
@@ -215,11 +227,13 @@ def test_recoverable_anomalies_are_retained_with_warnings(
         ("invalid_mimetype", "value is invalid"),
         ("missing_container", "container document is missing"),
         ("malformed_container", "container document is malformed XML"),
+        ("doctype_container", "container document contains unsupported declarations"),
         ("zero_rootfiles", "exactly one package rootfile"),
         ("multiple_rootfiles", "exactly one package rootfile"),
         ("unsupported_rootfile_media", "media type is unsupported"),
         ("missing_package", "package document is missing"),
         ("malformed_package", "package document is malformed XML"),
+        ("doctype_package", "package document contains unsupported declarations"),
         ("unsupported_version", "unsupported EPUB package version"),
         ("missing_manifest", "manifest is missing or malformed"),
         ("empty_manifest", "manifest is empty"),
@@ -229,7 +243,12 @@ def test_recoverable_anomalies_are_retained_with_warnings(
         ("missing_spine_resource", "spine resource is missing"),
         ("unsupported_spine_media", "media type is unsupported"),
         ("malformed_content", "spine content is malformed XML"),
-        ("doctype_content", "unsupported declarations"),
+        ("doctype_content", "spine content contains unsupported declaration"),
+        (
+            "doctype_internal_subset_content",
+            "spine content contains unsupported DOCTYPE internal subset",
+        ),
+        ("entity_content", "spine content contains unsupported entity declaration"),
         ("missing_body", "exactly one body"),
         ("encryption", "encrypted or DRM-protected"),
         ("unsafe_member", "unsafe member path"),

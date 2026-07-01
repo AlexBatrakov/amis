@@ -31,6 +31,15 @@ _IGNORED_TEXT_TAGS = {"head", "img", "script", "style", "svg", "title"}
 _BR_MARKER = "\N{SYMBOL FOR NEWLINE}"
 _SPACE_RE = re.compile(r"\s+")
 _HINT_SEPARATOR_RE = re.compile(r"[^a-z0-9]+")
+_XML_DECLARATION_RE = re.compile(rb"\A\s*<\?xml[^>]*\?>\s*", re.IGNORECASE)
+_DOCTYPE_START_RE = re.compile(rb"\A\s*<!DOCTYPE\b", re.IGNORECASE)
+_DOCTYPE_RE = re.compile(rb"<!DOCTYPE\b", re.IGNORECASE)
+_ENTITY_RE = re.compile(rb"<!ENTITY\b", re.IGNORECASE)
+_ALLOWED_XHTML_DOCTYPE_RE = re.compile(
+    rb"\A<!DOCTYPE\s+html\s+PUBLIC\s+(['\"])-//W3C//DTD XHTML [^'\"]+//EN\1"
+    rb"\s+(['\"])http://www\.w3\.org/TR/xhtml[^'\"]+\.dtd\2\s*>\Z",
+    re.IGNORECASE,
+)
 
 
 class IngestionError(Exception):
@@ -136,7 +145,7 @@ def _load_epub(source: Path) -> _LoadedEpub:
         parsed_sections: list[_ParsedSection] = []
         for spine_index, (item, linear) in enumerate(spine):
             content = archive.read(item.source_path)
-            root = _parse_xml_bytes(content, "spine content")
+            root = _parse_xhtml_bytes(content, "spine content")
             body = _single_body(root)
             role = _classify_role(
                 item,
@@ -299,13 +308,75 @@ def _parse_member_xml(
 
 
 def _parse_xml_bytes(content: bytes, description: str) -> ElementTree.Element:
-    upper_content = content.upper()
-    if b"<!DOCTYPE" in upper_content or b"<!ENTITY" in upper_content:
+    if _DOCTYPE_RE.search(content) or _ENTITY_RE.search(content):
         raise IngestionError(f"{description} contains unsupported declarations")
     try:
         return ElementTree.fromstring(content)
     except ElementTree.ParseError as error:
         raise IngestionError(f"{description} is malformed XML") from error
+
+
+def _parse_xhtml_bytes(content: bytes, description: str) -> ElementTree.Element:
+    sanitized = _sanitize_xhtml_declarations(content, description)
+    try:
+        return ElementTree.fromstring(sanitized)
+    except ElementTree.ParseError as error:
+        raise IngestionError(f"{description} is malformed XML") from error
+
+
+def _sanitize_xhtml_declarations(content: bytes, description: str) -> bytes:
+    if _ENTITY_RE.search(content):
+        raise IngestionError(f"{description} contains unsupported entity declaration")
+
+    offset = _leading_xml_declaration_end(content)
+    leading_doctype = _leading_doctype(content[offset:], description)
+    if leading_doctype is None:
+        if _DOCTYPE_RE.search(content[offset:]):
+            raise IngestionError(f"{description} contains unsupported declaration")
+        return content
+
+    doctype = leading_doctype.strip()
+    if b"[" in doctype or b"]" in doctype:
+        raise IngestionError(
+            f"{description} contains unsupported DOCTYPE internal subset"
+        )
+    if not _ALLOWED_XHTML_DOCTYPE_RE.fullmatch(doctype):
+        raise IngestionError(f"{description} contains unsupported declaration")
+
+    before = content[:offset]
+    after = content[offset + len(leading_doctype) :]
+    if _DOCTYPE_RE.search(after):
+        raise IngestionError(f"{description} contains unsupported declaration")
+    return before + after
+
+
+def _leading_xml_declaration_end(content: bytes) -> int:
+    match = _XML_DECLARATION_RE.match(content)
+    return match.end() if match else 0
+
+
+def _leading_doctype(content: bytes, description: str) -> bytes | None:
+    match = _DOCTYPE_START_RE.match(content)
+    if match is None:
+        return None
+
+    quote: int | None = None
+    bracket_depth = 0
+    for index in range(match.end(), len(content)):
+        char = content[index]
+        if quote is not None:
+            if char == quote:
+                quote = None
+            continue
+        if char in (ord("'"), ord('"')):
+            quote = char
+        elif char == ord("["):
+            bracket_depth += 1
+        elif char == ord("]") and bracket_depth:
+            bracket_depth -= 1
+        elif char == ord(">") and bracket_depth == 0:
+            return content[: index + 1]
+    raise IngestionError(f"{description} contains unterminated DOCTYPE declaration")
 
 
 def _read_metadata(
@@ -984,7 +1055,7 @@ def _build_fragment_index(
             ):
                 continue
             try:
-                root = _parse_xml_bytes(
+                root = _parse_xhtml_bytes(
                     archive.read(target_path), "linked content resource"
                 )
             except IngestionError:

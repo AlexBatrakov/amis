@@ -8,6 +8,10 @@ import zipfile
 from pathlib import Path
 
 MIMETYPE = b"application/epub+zip"
+XHTML_11_DOCTYPE = (
+    b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
+    b'"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n'
+)
 PNG_1X1 = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
     b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
@@ -84,12 +88,34 @@ def build_epub(path: Path, anomaly: str | None = None) -> Path:
         ]
     elif anomaly == "malformed_container":
         members[0] = (members[0][0], b"<container>", members[0][2])
+    elif anomaly == "doctype_container":
+        members[0] = (
+            members[0][0],
+            _insert_after_xml_declaration(
+                members[0][1], b'<!DOCTYPE container SYSTEM "container.dtd">\n'
+            ),
+            members[0][2],
+        )
     elif anomaly == "missing_package":
         members = [member for member in members if member[0] != "OPS/package.opf"]
     elif anomaly == "malformed_package":
         members[1] = (members[1][0], b"<package>", members[1][2])
+    elif anomaly == "doctype_package":
+        members[1] = (
+            members[1][0],
+            _insert_after_xml_declaration(
+                members[1][1], b'<!DOCTYPE package SYSTEM "package.dtd">\n'
+            ),
+            members[1][2],
+        )
     elif anomaly == "malformed_content":
         members[5] = (members[5][0], b"<html><body>", members[5][2])
+    elif anomaly == "benign_doctype_content":
+        members[5] = (
+            members[5][0],
+            _insert_after_xml_declaration(members[5][1], XHTML_11_DOCTYPE),
+            members[5][2],
+        )
     elif anomaly == "doctype_content":
         members[5] = (
             members[5][0],
@@ -97,6 +123,25 @@ def build_epub(path: Path, anomaly: str | None = None) -> Path:
                 b'<html xmlns="http://www.w3.org/1999/xhtml">',
                 b'<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml">',
             ),
+            members[5][2],
+        )
+    elif anomaly == "doctype_internal_subset_content":
+        members[5] = (
+            members[5][0],
+            _insert_after_xml_declaration(
+                members[5][1],
+                (
+                    b'<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
+                    b'"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd" '
+                    b"[<!ELEMENT synthetic ANY>]>\n"
+                ),
+            ),
+            members[5][2],
+        )
+    elif anomaly == "entity_content":
+        members[5] = (
+            members[5][0],
+            _insert_after_xml_declaration(members[5][1], b'<!ENTITY synthetic "x">\n'),
             members[5][2],
         )
     elif anomaly == "missing_body":
@@ -123,6 +168,14 @@ def build_epub(path: Path, anomaly: str | None = None) -> Path:
         members = [
             member for member in members if member[0] != "OPS/Navigation/toc.ncx"
         ]
+    elif anomaly == "doctype_navigation":
+        members[2] = (
+            members[2][0],
+            _insert_after_xml_declaration(
+                members[2][1], b'<!DOCTYPE ncx SYSTEM "toc.dtd">\n'
+            ),
+            members[2][2],
+        )
 
     mimetype_compression = (
         zipfile.ZIP_DEFLATED if anomaly == "compressed_mimetype" else zipfile.ZIP_STORED
@@ -156,6 +209,15 @@ def _write_member(
     member = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
     member.compress_type = compression
     archive.writestr(member, content)
+
+
+def _insert_after_xml_declaration(content: bytes, insertion: bytes) -> bytes:
+    marker = b"?>"
+    index = content.find(marker)
+    if index == -1:
+        return insertion + content
+    insertion_index = index + len(marker)
+    return content[:insertion_index] + b"\n" + insertion + content[insertion_index:]
 
 
 def _container_xml(anomaly: str | None) -> bytes:
