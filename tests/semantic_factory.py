@@ -111,5 +111,17 @@ def write_chunk_policy(root: Path, *, section_count: int = 3) -> Path:
     return result.output_directory
 
 
+def write_chunk_policy_from_texts(root: Path, texts: Sequence[str]) -> Path:
+    """Create a valid chunk-policy directory from explicit synthetic texts."""
+    sections = [SyntheticSection(text) for text in texts]
+    normalized = write_normalized_document(root / "normalized", sections)
+    result = chunk_document(
+        normalized,
+        root / "chunks",
+        ChunkPolicy(target_chars=500, max_chars=600, overlap_chars=0),
+    )
+    return result.output_directory
+
+
 def sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()

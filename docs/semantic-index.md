@@ -98,6 +98,34 @@ access, absent or mismatched snapshot files, token overflow, malformed vectors,
 stale input, unsafe paths, or conflicting output. Errors never include passage
 text or credentials.
 
+## Local Lexical Search
+
+AMIS can also search one chunk-policy directory directly with BM25 lexical
+retrieval:
+
+```bash
+amis lexical-search "synthetic query" \
+  --chunks data/processed/chunks/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256> \
+  --top-k 5 \
+  --excerpt-chars 320
+```
+
+Lexical search validates the chunk manifest and chunk stream before displaying
+citations. It does not require a semantic index, embedding model, model cache,
+or network access.
+
+The lexical analyzer applies Unicode NFKC normalization, case folding, and token
+splitting over contiguous Unicode letter, mark, and number categories. It does
+not use stemming, stopwords, synonym expansion, reranking, or answer generation.
+This makes it predictable for exact names, titles, quote fragments, rare words,
+and spelling-sensitive lookups, but less flexible for paraphrases.
+
+Each result row includes rank, BM25 lexical score, relative source path,
+document/chunk/section identifiers, source coordinates, text hash, and a bounded
+display excerpt. BM25 lexical scores are internal lexical ranking scores and
+should not be compared directly to vector cosine scores from semantic search.
+
 ## Local Search and Citations
 
 Search uses one existing semantic index, the matching chunk-policy directory,

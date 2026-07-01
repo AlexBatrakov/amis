@@ -13,7 +13,11 @@ from amis.cli import READY_MESSAGE, main
 from amis.model_cache import VerifiedModel
 from amis.model_spec import EMBEDDING_GEMMA
 from amis.semantic_index import build_semantic_index
-from tests.semantic_factory import FakeEmbedder, write_chunk_policy
+from tests.semantic_factory import (
+    FakeEmbedder,
+    write_chunk_policy,
+    write_chunk_policy_from_texts,
+)
 
 
 def test_package_is_importable() -> None:
@@ -56,6 +60,20 @@ import sys
 from amis.cli import main
 try:
     main(['search', '--help'])
+except SystemExit as error:
+    assert error.code == 0
+assert 'torch' not in sys.modules
+assert 'sentence_transformers' not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_lexical_search_help_does_not_import_optional_runtime() -> None:
+    script = """
+import sys
+from amis.cli import main
+try:
+    main(['lexical-search', '--help'])
 except SystemExit as error:
     assert error.code == 0
 assert 'torch' not in sys.modules
@@ -160,4 +178,60 @@ def test_search_cli_empty_query_fails_before_model_verification(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.startswith("amis search: error:")
+    assert "empty" in captured.err
+
+
+def test_lexical_search_cli_prints_synthetic_citations(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    chunks = write_chunk_policy_from_texts(
+        tmp_path / "input",
+        [
+            "Needle alpha alpha beta in a synthetic notice.",
+            "Gamma delta in another synthetic notice.",
+        ],
+    )
+
+    assert (
+        main(
+            [
+                "lexical-search",
+                "alpha beta",
+                "--chunks",
+                str(chunks),
+                "--top-k",
+                "1",
+                "--excerpt-chars",
+                "32",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "Rank 1 | lexical_score " in captured.out
+    assert "chunk_id: chunk_sha256_" in captured.out
+    assert "section_id: sec_sha256_" in captured.out
+    assert "excerpt: Needle alpha alpha beta" in captured.out
+
+
+def test_lexical_search_cli_empty_query_fails_before_chunk_loading(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    assert (
+        main(
+            [
+                "lexical-search",
+                "   ",
+                "--chunks",
+                str(tmp_path / "missing"),
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("amis lexical-search: error:")
     assert "empty" in captured.err

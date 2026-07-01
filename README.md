@@ -63,6 +63,21 @@ versioned character policy. The chunker reads only the normalized records,
 never crosses section boundaries, and does not use a model tokenizer. The
 input document directory and chunk output root must be disjoint.
 
+Search one chunk-policy directory with deterministic BM25 lexical retrieval:
+
+```bash
+amis lexical-search "your query" \
+  --chunks data/processed/chunks/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256> \
+  --top-k 5 \
+  --excerpt-chars 320
+```
+
+Lexical search requires no embedding model, vector index, model cache, or
+network access. It is useful for exact names, titles, quote fragments, rare
+words, and spelling-sensitive terms. Results display BM25 lexical scores, which
+are not comparable to vector cosine scores, plus bounded runtime excerpts.
+
 Build the optional semantic-index runtime, explicitly acquire the pinned gated
 model, and index one chunk-policy directory:
 

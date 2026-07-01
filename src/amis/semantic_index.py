@@ -89,6 +89,12 @@ class ValidatedChunkText:
 
     chunk_id: str
     document_chunk_index: int
+    document_id: str
+    end_char: int
+    section_chunk_index: int
+    section_id: str
+    source_path: str
+    start_char: int
     text: str
     text_sha256: str
 
@@ -336,6 +342,12 @@ def load_validated_chunk_texts(
         ValidatedChunkText(
             chunk["chunk_id"],
             chunk["document_chunk_index"],
+            chunk["document_id"],
+            chunk["end_char"],
+            chunk["section_chunk_index"],
+            chunk["section_id"],
+            chunk["source_path"],
+            chunk["start_char"],
             chunk["text"],
             chunk["text_sha256"],
         )
