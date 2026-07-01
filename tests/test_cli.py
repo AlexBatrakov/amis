@@ -82,6 +82,20 @@ assert 'sentence_transformers' not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_hybrid_search_help_does_not_import_optional_runtime() -> None:
+    script = """
+import sys
+from amis.cli import main
+try:
+    main(['hybrid-search', '--help'])
+except SystemExit as error:
+    assert error.code == 0
+assert 'torch' not in sys.modules
+assert 'sentence_transformers' not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_index_build_reports_missing_local_model(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
@@ -235,3 +249,124 @@ def test_lexical_search_cli_empty_query_fails_before_chunk_loading(
     assert captured.out == ""
     assert captured.err.startswith("amis lexical-search: error:")
     assert "empty" in captured.err
+
+
+def test_hybrid_search_cli_prints_synthetic_citations(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: MonkeyPatch
+) -> None:
+    chunks = write_chunk_policy_from_texts(
+        tmp_path / "input",
+        [
+            "Alpha beta appears in the first synthetic notice.",
+            "Gamma appears in the second synthetic notice.",
+            "Delta appears in the third synthetic notice.",
+        ],
+    )
+    result = build_semantic_index(chunks, tmp_path / "indexes", FakeEmbedder())
+    fake_query_embedder = FakeEmbedder()
+    snapshot = tmp_path / "cache" / "snapshot"
+
+    monkeypatch.setattr(
+        cli,
+        "verify_model_snapshot",
+        lambda selected, *, cache_root: VerifiedModel(snapshot, EMBEDDING_GEMMA),
+    )
+    monkeypatch.setattr(
+        embeddings,
+        "SentenceTransformerEmbedder",
+        lambda selected: fake_query_embedder,
+    )
+
+    assert (
+        main(
+            [
+                "hybrid-search",
+                "gamma",
+                "--index",
+                str(result.output_directory),
+                "--chunks",
+                str(chunks),
+                "--top-k",
+                "1",
+                "--candidate-k",
+                "3",
+                "--excerpt-chars",
+                "32",
+                "--cache-root",
+                str(tmp_path / "cache"),
+                "--model-snapshot",
+                str(snapshot),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "Rank 1 | fused_rrf_score " in captured.out
+    assert "source_membership: both" in captured.out
+    assert "vector_rank: 1 | vector_cosine_score 1.000000" in captured.out
+    assert "lexical_rank: 2 | lexical_bm25_score " in captured.out
+    assert "chunk_id: chunk_sha256_" in captured.out
+    assert "section_id: sec_sha256_" in captured.out
+    assert "excerpt: Alpha beta appears" in captured.out
+
+
+def test_hybrid_search_cli_empty_query_fails_before_model_verification(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: MonkeyPatch
+) -> None:
+    def verify_should_not_run(*args: object, **kwargs: object) -> VerifiedModel:
+        raise AssertionError("model verification must not run")
+
+    monkeypatch.setattr(cli, "verify_model_snapshot", verify_should_not_run)
+
+    assert (
+        main(
+            [
+                "hybrid-search",
+                "   ",
+                "--index",
+                str(tmp_path / "index"),
+                "--chunks",
+                str(tmp_path / "chunks"),
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("amis hybrid-search: error:")
+    assert "empty" in captured.err
+
+
+def test_hybrid_search_cli_candidate_validation_precedes_model_verification(
+    tmp_path: Path, capsys: CaptureFixture[str], monkeypatch: MonkeyPatch
+) -> None:
+    def verify_should_not_run(*args: object, **kwargs: object) -> VerifiedModel:
+        raise AssertionError("model verification must not run")
+
+    monkeypatch.setattr(cli, "verify_model_snapshot", verify_should_not_run)
+
+    assert (
+        main(
+            [
+                "hybrid-search",
+                "alpha",
+                "--index",
+                str(tmp_path / "index"),
+                "--chunks",
+                str(tmp_path / "chunks"),
+                "--top-k",
+                "2",
+                "--candidate-k",
+                "1",
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("amis hybrid-search: error:")
+    assert "candidate-k" in captured.err

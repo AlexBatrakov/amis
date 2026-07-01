@@ -152,3 +152,36 @@ identifiers, source coordinates, text hash, and a bounded display excerpt. The
 coordinates refer to the full retrieved chunk; the excerpt is only a shortened
 runtime display. Search does not acquire models, download files, generate
 answers, rerank, evaluate quality, log queries, or write result artifacts.
+
+## Local Hybrid RRF Search
+
+Hybrid search combines the semantic/vector and lexical/BM25 retrieval paths for
+one query over one semantic index and its matching chunk-policy directory:
+
+```bash
+amis hybrid-search "synthetic query" \
+  --index data/indexes/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256>/index_config_sha256_<config-sha256> \
+  --chunks data/processed/chunks/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256> \
+  --top-k 5 \
+  --candidate-k 20 \
+  --excerpt-chars 320
+```
+
+The command requires the same verified local embedding model as semantic search
+because the vector side is active. It first retrieves `--candidate-k` vector
+citations and `--candidate-k` lexical citations, unions them by chunk ID, checks
+that shared citation metadata agrees, and ranks the union with Reciprocal Rank
+Fusion. The default public mode is `rrf_vector2_lexical1_k20`: vector rank
+weight `2.0`, lexical rank weight `1.0`, and rank constant `20`.
+
+Each result row includes the fused rank, fused RRF score, source membership,
+vector rank and cosine score when present, lexical rank and BM25 score when
+present, relative source path, document/chunk/section identifiers, source
+coordinates, text hash, and a bounded display excerpt.
+
+Hybrid fused scores are rank-fusion scores, not calibrated relevance
+probabilities. AMIS does not add vector cosine scores and BM25 scores together.
+Hybrid search does not acquire models, download files, generate answers, rerank
+with a separate model, log queries, or write result artifacts.

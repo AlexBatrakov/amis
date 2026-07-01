@@ -13,6 +13,7 @@ from amis.chunking import (
     ChunkPolicy,
     chunk_document,
 )
+from amis.hybrid import DEFAULT_CANDIDATE_K
 from amis.ingestion import IngestionError, ingest_epub
 from amis.model_cache import (
     ModelCacheError,
@@ -161,6 +162,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_EXCERPT_CHARS,
         help="maximum display characters per excerpt",
     )
+    hybrid_search_parser = subparsers.add_parser(
+        "hybrid-search",
+        help="search one semantic index and chunk-policy directory with RRF",
+    )
+    hybrid_search_parser.add_argument("query", help="query text")
+    hybrid_search_parser.add_argument(
+        "--index",
+        type=Path,
+        required=True,
+        help="directory containing index_manifest.json, metadata.jsonl, vectors.npy",
+    )
+    hybrid_search_parser.add_argument(
+        "--chunks",
+        type=Path,
+        required=True,
+        help="matching chunk-policy directory for citation text",
+    )
+    hybrid_search_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=DEFAULT_TOP_K,
+        help="number of ranked citations to display",
+    )
+    hybrid_search_parser.add_argument(
+        "--candidate-k",
+        type=int,
+        default=DEFAULT_CANDIDATE_K,
+        help="number of vector and lexical candidates to fuse",
+    )
+    hybrid_search_parser.add_argument(
+        "--excerpt-chars",
+        type=int,
+        default=DEFAULT_EXCERPT_CHARS,
+        help="maximum display characters per excerpt",
+    )
+    _add_cache_argument(hybrid_search_parser)
+    hybrid_search_parser.add_argument(
+        "--model-snapshot",
+        type=Path,
+        help="explicit snapshot contained by the selected cache root",
+    )
     arguments = parser.parse_args(argv)
 
     if arguments.command is None:
@@ -269,6 +311,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_lexical_search_result(result)
         return 0
 
+    if arguments.command == "hybrid-search":
+        from amis.embeddings import EmbeddingError, SentenceTransformerEmbedder
+        from amis.hybrid import (
+            HybridRetrievalError,
+            search_hybrid_citations,
+            validate_hybrid_search_request,
+        )
+
+        cache_root = arguments.cache_root or default_model_cache()
+        selected_snapshot = arguments.model_snapshot or snapshot_directory(cache_root)
+        try:
+            validate_hybrid_search_request(
+                arguments.query,
+                top_k=arguments.top_k,
+                candidate_k=arguments.candidate_k,
+                excerpt_chars=arguments.excerpt_chars,
+            )
+            verified = verify_model_snapshot(selected_snapshot, cache_root=cache_root)
+            embedder = SentenceTransformerEmbedder(verified.snapshot_directory)
+            result = search_hybrid_citations(
+                arguments.query,
+                index_directory=arguments.index,
+                chunk_policy_directory=arguments.chunks,
+                embedder=embedder,
+                top_k=arguments.top_k,
+                candidate_k=arguments.candidate_k,
+                excerpt_chars=arguments.excerpt_chars,
+            )
+        except (ModelCacheError, EmbeddingError, HybridRetrievalError) as error:
+            print(f"amis hybrid-search: error: {error}", file=sys.stderr)
+            return 1
+        _print_hybrid_search_result(result)
+        return 0
+
     try:
         policy = ChunkPolicy(
             target_chars=arguments.target_chars,
@@ -329,6 +405,49 @@ def _print_lexical_search_result(result: object) -> None:
         )
         print(f"text_sha256: {citation.text_sha256}")
         print(f"excerpt: {citation.excerpt}")
+
+
+def _print_hybrid_search_result(result: object) -> None:
+    citations = result.citations
+    for index, citation in enumerate(citations):
+        if index:
+            print()
+        print(f"Rank {citation.rank} | fused_rrf_score {citation.fused_score:.12f}")
+        print(f"source_membership: {citation.source_membership}")
+        print(
+            "vector_rank: "
+            f"{_display_optional(citation.vector_rank)} | "
+            f"vector_cosine_score {_display_optional_score(citation.vector_score)}"
+        )
+        print(
+            "lexical_rank: "
+            f"{_display_optional(citation.lexical_rank)} | "
+            f"lexical_bm25_score {_display_optional_score(citation.lexical_score)}"
+        )
+        print(f"source: {citation.source_path}")
+        print(f"document_id: {citation.document_id}")
+        print(f"chunk_id: {citation.chunk_id}")
+        print(f"document_chunk_index: {citation.document_chunk_index}")
+        print(f"section_id: {citation.section_id}")
+        print(f"section_chunk_index: {citation.section_chunk_index}")
+        print(
+            f"coordinates: start_char={citation.start_char} "
+            f"end_char={citation.end_char}"
+        )
+        print(f"text_sha256: {citation.text_sha256}")
+        print(f"excerpt: {citation.excerpt}")
+
+
+def _display_optional(value: int | None) -> str:
+    if value is None:
+        return "none"
+    return str(value)
+
+
+def _display_optional_score(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return f"{value:.6f}"
 
 
 def _add_cache_argument(parser: argparse.ArgumentParser) -> None:

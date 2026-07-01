@@ -109,6 +109,26 @@ Search verifies the local model snapshot, validates the supplied index and
 matching chunks together, and prints bounded runtime excerpts. It does not
 download models, generate answers, or persist query text.
 
+Fuse semantic/vector and BM25 lexical candidates with deterministic Reciprocal
+Rank Fusion:
+
+```bash
+amis hybrid-search "your query" \
+  --index data/indexes/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256>/index_config_sha256_<config-sha256> \
+  --chunks data/processed/chunks/doc_sha256_<source-sha256>/\
+chunk_policy_sha256_<policy-sha256> \
+  --top-k 5 \
+  --candidate-k 20 \
+  --excerpt-chars 320
+```
+
+Hybrid search requires the local embedding model because vector retrieval is
+active. It does not add cosine and BM25 scores together; it fuses source ranks
+with RRF and displays fused ranking scores separately from vector cosine and
+lexical BM25 scores. Fused scores are not calibrated relevance probabilities.
+Hybrid search does not rerank with a separate model or generate answers.
+
 ## Development Checks
 
 ```bash
